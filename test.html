@@ -55,7 +55,7 @@
     function initGoogleClient() {
       gapi.load('client', () => {
         gapi.client.init({
-          apiKey: 'AIzaSyDvlQjFdyA3CT4wksuA1gD2QJ6DZOY_A3w',  // Your API Key
+          apiKey: 'AIzaSyDvlQjFdyA3CT4wksuA1gD2QJ6DZOY_A3w',  // Your provided API Key
           discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/youtube/v3/rest']
         }).then(() => {
           tokenClient = google.accounts.oauth2.initTokenClient({
