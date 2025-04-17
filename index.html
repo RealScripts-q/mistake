@@ -1,66 +1,71 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>YouTube Uploader with Google Identity Services</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="google-signin-client_id" content="143618709913-c87kg55fruv738c95hgcu470eqc35jj0.apps.googleusercontent.com">
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="https://apis.google.com/js/api.js"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>YouTube Video Uploader</title>
 </head>
 <body>
-  <h2>YouTube Video Uploader</h2>
+  <h1>Upload Video to YouTube</h1>
 
-  <!-- Sign in button -->
-  <div id="signinDiv"></div>
-  <p id="signinStatus">Not signed in</p>
+  <form id="uploadForm">
+    <label for="title">Title:</label>
+    <input type="text" id="title" name="title" required><br><br>
 
-  <!-- Upload form -->
-  <form id="uploadForm" style="display:none;">
-    <label>Title:</label><br>
-    <input type="text" id="title" required><br><br>
+    <label for="description">Description:</label>
+    <textarea id="description" name="description" required></textarea><br><br>
 
-    <label>Description:</label><br>
-    <textarea id="description" required></textarea><br><br>
+    <label for="video">Choose Video:</label>
+    <input type="file" id="video" name="video" accept="video/*" required><br><br>
 
-    <label>Select Video:</label><br>
-    <input type="file" id="video" accept="video/*" required><br><br>
-
-    <button type="submit">Upload</button>
+    <button type="submit">Upload Video</button>
   </form>
 
+  <p id="status"></p>
+
+  <!-- Load Google APIs -->
+  <script src="https://apis.google.com/js/api.js"></script>
+
   <script>
-    let tokenClient;
-    let accessToken = null;
+    const CLIENT_ID = '904318254344-efp75k42f126fen8648q2rfksnj1nut4.apps.googleusercontent.com';
+    const API_KEY = 'AIzaSyAbvXjMoWT0vw-7TGFErEN6w3PNlFl0weY';
+    const SCOPES = 'https://www.googleapis.com/auth/youtube.upload';
+    let gapiLoaded = false;
 
-    function initGoogleClient() {
-      gapi.load('client', () => {
-        gapi.client.init({
-          apiKey: 'AIzaSyDvlQjFdyA3CT4wksuA1gD2QJ6DZOY_A3w',
-          discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/youtube/v3/rest']
-        }).then(() => {
-          tokenClient = google.accounts.oauth2.initTokenClient({
-            client_id: '143618709913-c87kg55fruv738c95hgcu470eqc35jj0.apps.googleusercontent.com',
-            scope: 'https://www.googleapis.com/auth/youtube.upload',
-            callback: (tokenResponse) => {
-              accessToken = tokenResponse.access_token;
-              document.getElementById('signinStatus').textContent = "Signed in";
-              document.getElementById('uploadForm').style.display = 'block';
-              document.getElementById('signinDiv').style.display = 'none';
-            },
-          });
+    function onClientLoad() {
+      gapi.load('client:auth2', initClient);
+    }
 
-          // Show sign-in button
-          const signinDiv = document.getElementById("signinDiv");
-          const button = document.createElement("button");
-          button.textContent = "Sign in with Google";
-          button.onclick = () => tokenClient.requestAccessToken();
-          signinDiv.appendChild(button);
-        });
+    function initClient() {
+      gapi.client.init({
+        apiKey: API_KEY,
+        clientId: CLIENT_ID,
+        scope: SCOPES
+      }).then(() => {
+        gapiLoaded = true;
+        console.log("✅ GAPI initialized");
+      }).catch(error => {
+        console.error("❌ GAPI init failed:", error);
       });
     }
 
-    function uploadToYouTube(file, title, description) {
+    function handleAuthAndUpload() {
+      const authInstance = gapi.auth2.getAuthInstance();
+      if (!authInstance.isSignedIn.get()) {
+        authInstance.signIn().then(uploadVideo);
+      } else {
+        uploadVideo();
+      }
+    }
+
+    function uploadVideo() {
+      const form = document.getElementById('uploadForm');
+      const formData = new FormData(form);
+
+      const file = formData.get('video');
+      const title = formData.get('title');
+      const description = formData.get('description');
+
       const metadata = {
         snippet: {
           title: title,
@@ -72,39 +77,52 @@
         }
       };
 
-      const uploader = gapi.client.youtube.videos.insert({
-        part: 'snippet,status',
-        resource: metadata,
-        media: {
-          body: file
-        }
+      const uploader = gapi.client.request({
+        path: '/upload/youtube/v3/videos',
+        method: 'POST',
+        params: {
+          part: 'snippet,status',
+          uploadType: 'resumable'
+        },
+        body: metadata
       });
 
-      uploader.execute((response) => {
-        if (response.error) {
-          console.error(response.error);
-          alert("Upload failed: " + response.error.message);
+      uploader.execute(initiateUpload);
+
+      function initiateUpload(response) {
+        if (!response.error) {
+          const uploadUrl = response.headers.location;
+          fetch(uploadUrl, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': file.type,
+              'Content-Length': file.size
+            },
+            body: file
+          })
+          .then(res => res.json())
+          .then(data => {
+            document.getElementById("status").innerText = '✅ Video uploaded! ID: ' + data.id;
+          })
+          .catch(err => {
+            document.getElementById("status").innerText = '❌ Upload failed: ' + err.message;
+          });
         } else {
-          alert("Video uploaded! Video ID: " + response.id);
+          document.getElementById("status").innerText = '❌ Upload init failed: ' + response.error.message;
         }
-      });
+      }
     }
 
-    document.getElementById('uploadForm').addEventListener('submit', function(e) {
+    document.getElementById("uploadForm").addEventListener("submit", function(e) {
       e.preventDefault();
-      const file = document.getElementById('video').files[0];
-      const title = document.getElementById('title').value;
-      const description = document.getElementById('description').value;
-
-      if (!accessToken) {
-        alert("You must sign in first.");
-        return;
+      if (gapiLoaded) {
+        handleAuthAndUpload();
+      } else {
+        alert("Google API not ready yet.");
       }
-
-      uploadToYouTube(file, title, description);
     });
 
-    window.onload = initGoogleClient;
+    window.onload = onClientLoad;
   </script>
 </body>
 </html>
