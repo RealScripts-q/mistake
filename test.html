@@ -2,37 +2,42 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>YouTube Video Uploader with Google Identity Services</title>
+  <title>YouTube Channel Viewer</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="google-signin-client_id" content="143618709913-c87kg55fruv738c95hgcu470eqc35jj0.apps.googleusercontent.com">
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="https://apis.google.com/js/api.js"></script>
+  <style>
+    /* Simple styling for the page */
+    #videos { display: flex; flex-wrap: wrap; }
+    .video {
+      margin: 10px;
+      width: 300px;
+    }
+    iframe {
+      width: 100%;
+      height: 200px;
+    }
+    #signinDiv {
+      margin: 20px;
+    }
+  </style>
 </head>
 <body>
-  <h2>YouTube Video Uploader</h2>
+  <h2>Welcome to Your YouTube Channel Viewer</h2>
 
   <!-- Sign in button -->
   <div id="signinDiv"></div>
   <p id="signinStatus">Not signed in</p>
 
-  <!-- Upload form -->
-  <form id="uploadForm" style="display:none;">
-    <label>Title:</label><br>
-    <input type="text" id="title" required><br><br>
-
-    <label>Description:</label><br>
-    <textarea id="description" required></textarea><br><br>
-
-    <label>Select Video:</label><br>
-    <input type="file" id="video" accept="video/*" required><br><br>
-
-    <button type="submit">Upload</button>
-  </form>
+  <!-- Video container -->
+  <div id="videos"></div>
 
   <script>
     let tokenClient;
     let accessToken = null;
 
+    // Initialize the Google API client
     function initGoogleClient() {
       gapi.load('client', () => {
         gapi.client.init({
@@ -41,12 +46,12 @@
         }).then(() => {
           tokenClient = google.accounts.oauth2.initTokenClient({
             client_id: '143618709913-c87kg55fruv738c95hgcu470eqc35jj0.apps.googleusercontent.com',
-            scope: 'https://www.googleapis.com/auth/youtube.upload',
+            scope: 'https://www.googleapis.com/auth/youtube.readonly',
             callback: (tokenResponse) => {
               accessToken = tokenResponse.access_token;
               document.getElementById('signinStatus').textContent = "Signed in";
-              document.getElementById('uploadForm').style.display = 'block';
               document.getElementById('signinDiv').style.display = 'none';
+              fetchUserVideos();
             },
           });
 
@@ -60,50 +65,57 @@
       });
     }
 
-    function uploadToYouTube(file, title, description) {
-      const metadata = {
-        snippet: {
-          title: title,
-          description: description,
-          categoryId: '22'  // Category for People & Blogs
-        },
-        status: {
-          privacyStatus: 'public'
-        }
-      };
-
-      const uploader = gapi.client.youtube.videos.insert({
-        part: 'snippet,status',
-        resource: metadata,
-        media: {
-          body: file
-        }
-      });
-
-      uploader.execute((response) => {
-        if (response.error) {
-          console.error(response.error);
-          alert("Upload failed: " + response.error.message);
-        } else {
-          alert("Video uploaded! Video ID: " + response.id);
-        }
-      });
-    }
-
-    document.getElementById('uploadForm').addEventListener('submit', function(e) {
-      e.preventDefault();
-      const file = document.getElementById('video').files[0];
-      const title = document.getElementById('title').value;
-      const description = document.getElementById('description').value;
-
+    // Fetch the user's videos from YouTube API
+    function fetchUserVideos() {
       if (!accessToken) {
         alert("You must sign in first.");
         return;
       }
 
-      uploadToYouTube(file, title, description);
-    });
+      gapi.client.youtube.channels.list({
+        part: 'contentDetails',
+        mine: true
+      }).then((response) => {
+        const channelId = response.result.items[0].id;
 
+        // Now, get the uploads playlist to fetch user's videos
+        gapi.client.youtube.playlistItems.list({
+          part: 'snippet',
+          playlistId: response.result.items[0].contentDetails.relatedPlaylists.uploads,
+          maxResults: 10
+        }).then((videoResponse) => {
+          const videos = videoResponse.result.items;
+          displayVideos(videos);
+        });
+      });
+    }
+
+    // Display the user's videos
+    function displayVideos(videos) {
+      const videosContainer = document.getElementById('videos');
+      videosContainer.innerHTML = '';
+
+      videos.forEach((video) => {
+        const videoElement = document.createElement('div');
+        videoElement.className = 'video';
+
+        const videoTitle = document.createElement('h3');
+        videoTitle.textContent = video.snippet.title;
+
+        const videoIframe = document.createElement('iframe');
+        videoIframe.src = `https://www.youtube.com/embed/${video.snippet.resourceId.videoId}`;
+        videoIframe.frameborder = "0";
+        videoIframe.allow = "accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture";
+        videoIframe.allowfullscreen = true;
+
+        videoElement.appendChild(videoTitle);
+        videoElement.appendChild(videoIframe);
+
+        videosContainer.appendChild(videoElement);
+      });
+    }
+
+    // Call initGoogleClient on page load
     window.onload = initGoogleClient;
   </script>
 </body>
