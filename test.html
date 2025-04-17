@@ -21,6 +21,9 @@
     #signinDiv {
       margin: 20px;
     }
+    #avatar {
+      margin-top: 20px;
+    }
   </style>
 </head>
 <body>
@@ -29,6 +32,17 @@
   <!-- Sign in button -->
   <div id="signinDiv"></div>
   <p id="signinStatus">Not signed in</p>
+
+  <!-- Avatar and Channel Link -->
+  <div id="avatar" style="display:none;">
+    <img id="userAvatar" src="" alt="User Avatar" width="100">
+    <p>Welcome, <span id="userName"></span></p>
+    <a id="channelLink" href="#" target="_blank">View Your Channel</a>
+  </div>
+
+  <!-- Search Box -->
+  <input type="text" id="searchInput" placeholder="Search for videos" />
+  <button onclick="searchVideos()">Search</button>
 
   <!-- Video container -->
   <div id="videos"></div>
@@ -51,7 +65,7 @@
               accessToken = tokenResponse.access_token;
               document.getElementById('signinStatus').textContent = "Signed in";
               document.getElementById('signinDiv').style.display = 'none';
-              fetchUserVideos();
+              fetchUserInfo();
             },
           });
 
@@ -65,13 +79,35 @@
       });
     }
 
-    // Fetch the user's videos from YouTube API
-    function fetchUserVideos() {
+    // Fetch user information (avatar, name, and channel link)
+    function fetchUserInfo() {
       if (!accessToken) {
         alert("You must sign in first.");
         return;
       }
 
+      gapi.client.youtube.channels.list({
+        part: 'snippet',
+        mine: true
+      }).then((response) => {
+        const channel = response.result.items[0];
+        const avatarUrl = channel.snippet.thumbnails.default.url;
+        const channelName = channel.snippet.title;
+        const channelId = channel.id;
+
+        // Set the avatar and channel link
+        document.getElementById('userAvatar').src = avatarUrl;
+        document.getElementById('userName').textContent = channelName;
+        document.getElementById('channelLink').href = `https://www.youtube.com/channel/${channelId}`;
+        document.getElementById('avatar').style.display = 'block';
+
+        // Fetch and display the user's uploaded videos
+        fetchUserVideos();
+      });
+    }
+
+    // Fetch the user's videos from YouTube API
+    function fetchUserVideos() {
       gapi.client.youtube.channels.list({
         part: 'contentDetails',
         mine: true
@@ -112,6 +148,26 @@
         videoElement.appendChild(videoIframe);
 
         videosContainer.appendChild(videoElement);
+      });
+    }
+
+    // Search for videos on YouTube
+    function searchVideos() {
+      const query = document.getElementById('searchInput').value;
+
+      if (!query) {
+        alert("Please enter a search term.");
+        return;
+      }
+
+      gapi.client.youtube.search.list({
+        part: 'snippet',
+        q: query,
+        type: 'video',
+        maxResults: 10
+      }).then((response) => {
+        const videos = response.result.items;
+        displayVideos(videos);
       });
     }
 
