@@ -43,21 +43,17 @@
 
     <label><input type="checkbox" id="madeForKids"> Made for kids</label><br><br>
 
+    <label><input type="checkbox" id="autoUpload"> Auto-upload video after filling in details</label><br><br>
+
     <button type="submit">Upload</button>
   </form>
 
   <div id="successMessage"></div>
 
-  <div id="loopStatus">
-    <p>Auto-upload is <span id="loopText">enabled</span>. 
-      <button id="stopLoopBtn">Stop Loop</button>
-    </p>
-  </div>
-
   <script>
     let tokenClient;
     let accessToken = null;
-    let isLooping = true;  // Flag to control the upload loop
+    let isLooping = false;  // Flag to control auto-upload loop
 
     function initGoogleClient() {
       gapi.load('client', () => {
@@ -161,9 +157,6 @@
 
           // If looping is enabled, automatically re-trigger upload
           if (isLooping) {
-            document.getElementById('loopText').textContent = 'enabled';
-            document.getElementById('stopLoopBtn').style.display = 'inline-block';
-            document.getElementById('uploadForm').reset();
             setTimeout(() => {
               uploadToYouTube(file, title, description, madeForKids, thumbnailFile);
             }, 2000);  // 2-second delay before next upload
@@ -182,21 +175,18 @@
       const title = document.getElementById('title').value;
       const description = document.getElementById('description').value;
       const madeForKids = document.getElementById('madeForKids').checked;
+      const autoUpload = document.getElementById('autoUpload').checked;
 
       if (!accessToken) {
         alert("You must sign in first.");
         return;
       }
 
-      // Start uploading the video automatically
-      uploadToYouTube(file, title, description, madeForKids, thumbnailFile);
-    });
+      // Set the loop flag based on the auto-upload checkbox
+      isLooping = autoUpload;
 
-    // Stop the loop when the button is clicked
-    document.getElementById('stopLoopBtn').addEventListener('click', () => {
-      isLooping = false;
-      document.getElementById('loopText').textContent = 'disabled';
-      document.getElementById('stopLoopBtn').style.display = 'none';
+      // Start uploading the video
+      uploadToYouTube(file, title, description, madeForKids, thumbnailFile);
     });
 
     window.onload = initGoogleClient;
