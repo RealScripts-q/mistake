@@ -43,7 +43,7 @@
 
     <label><input type="checkbox" id="madeForKids"> Made for kids</label><br><br>
 
-    <label><input type="checkbox" id="autoUpload"> Auto-upload video after filling in details</label><br><br>
+    <label><input type="checkbox" id="autoUpload" disabled> Auto-upload video after filling in details</label><br><br>
 
     <button type="submit">Upload</button>
   </form>
@@ -167,6 +167,27 @@
         });
       };
     }
+
+    // Function to check if all fields are filled in and enable the checkbox
+    function checkFields() {
+      const title = document.getElementById('title').value;
+      const description = document.getElementById('description').value;
+      const videoFile = document.getElementById('video').files[0];
+
+      const autoUploadCheckbox = document.getElementById('autoUpload');
+
+      // Enable auto-upload checkbox only if all fields are filled
+      if (title && description && videoFile) {
+        autoUploadCheckbox.disabled = false;
+      } else {
+        autoUploadCheckbox.disabled = true;
+      }
+    }
+
+    // Monitor changes in title, description, and video fields to enable the checkbox
+    document.getElementById('title').addEventListener('input', checkFields);
+    document.getElementById('description').addEventListener('input', checkFields);
+    document.getElementById('video').addEventListener('change', checkFields);
 
     document.getElementById('uploadForm').addEventListener('submit', function(e) {
       e.preventDefault();
