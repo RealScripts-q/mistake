@@ -1,17 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8">
   <title>YouTube Video Uploader</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="google-signin-client_id" content="143618709913-c87kg55fruv738c95hgcu470eqc35jj0.apps.googleusercontent.com">
   <script src="https://accounts.google.com/gsi/client" async defer></script>
   <script src="https://apis.google.com/js/api.js"></script>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      padding: 20px;
-    }
     #successMessage {
       display: none;
       margin-top: 20px;
@@ -20,6 +16,9 @@
       background-color: #d4edda;
       color: #155724;
       border: 1px solid #c3e6cb;
+    }
+    #loopStatus {
+      margin-top: 20px;
     }
   </style>
 </head>
@@ -49,9 +48,16 @@
 
   <div id="successMessage"></div>
 
+  <div id="loopStatus">
+    <p>Auto-upload is <span id="loopText">enabled</span>. 
+      <button id="stopLoopBtn">Stop Loop</button>
+    </p>
+  </div>
+
   <script>
     let tokenClient;
     let accessToken = null;
+    let isLooping = true;  // Flag to control the upload loop
 
     function initGoogleClient() {
       gapi.load('client', () => {
@@ -66,10 +72,10 @@
               accessToken = tokenResponse.access_token;
               gapi.client.setToken({ access_token: accessToken });
 
-              document.getElementById('signinStatus').textContent = "✅ Signed in";
+              document.getElementById('signinStatus').textContent = "Signed in";
               document.getElementById('uploadForm').style.display = 'block';
               document.getElementById('signinDiv').style.display = 'none';
-            }
+            },
           });
 
           const signinDiv = document.getElementById("signinDiv");
@@ -87,13 +93,13 @@
       successDiv.innerHTML = `
         <strong>✅ Upload Successful!</strong><br>
         Your video has been uploaded. <br>
-        <a href="https://www.youtube.com/watch?v=${videoId}" target="_blank">🎬 Watch it on YouTube</a><br><br>
-        👉 To add end screens, open this video in <a href="https://studio.youtube.com/video/${videoId}/edit" target="_blank">YouTube Studio</a> and go to the "End screen" tab.
+        <a href="https://www.youtube.com/watch?v=${videoId}" target="_blank">Watch it on YouTube</a>
       `;
     }
 
     function uploadThumbnail(videoId, thumbnailFile) {
       const reader = new FileReader();
+      reader.readAsArrayBuffer(thumbnailFile);
       reader.onload = function () {
         gapi.client.request({
           path: '/upload/youtube/v3/thumbnails/set',
@@ -104,69 +110,72 @@
           },
           body: reader.result
         }).then(() => {
-          console.log("✅ Thumbnail uploaded!");
-        }).catch(err => {
-          console.error("❌ Thumbnail upload failed:", err);
+          console.log("Thumbnail uploaded!");
+        }, err => {
+          console.error(err);
           alert("Thumbnail upload failed: " + err.result.error.message);
         });
       };
-      reader.readAsArrayBuffer(thumbnailFile);
     }
 
     function uploadToYouTube(file, title, description, madeForKids, thumbnailFile) {
-      const metadata = {
-        snippet: {
-          title,
-          description,
-          categoryId: '22'
-        },
-        status: {
-          privacyStatus: 'public',
-          madeForKids: madeForKids
-        }
+      const reader = new FileReader();
+      reader.readAsArrayBuffer(file);
+      reader.onload = function () {
+        const fileData = reader.result;
+        const boundary = '-------314159265358979323846';
+        const delimiter = "\r\n--" + boundary + "\r\n";
+        const close_delim = "\r\n--" + boundary + "--";
+
+        const metadata = {
+          snippet: { title, description, categoryId: '22' },
+          status: {
+            privacyStatus: 'public',
+            madeForKids: madeForKids
+          }
+        };
+
+        const multipartRequestBody =
+          delimiter +
+          'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+          JSON.stringify(metadata) +
+          delimiter +
+          'Content-Type: ' + file.type + '\r\n\r\n' +
+          new Uint8Array(fileData) +
+          close_delim;
+
+        gapi.client.request({
+          path: '/upload/youtube/v3/videos',
+          method: 'POST',
+          params: { uploadType: 'multipart', part: 'snippet,status' },
+          headers: { 'Content-Type': 'multipart/related; boundary="' + boundary + '"' },
+          body: multipartRequestBody
+        }).then(function(response) {
+          const videoId = response.result.id;
+          showSuccessMessage(videoId);
+
+          // Upload thumbnail if provided
+          if (thumbnailFile) {
+            uploadThumbnail(videoId, thumbnailFile);
+          }
+
+          // If looping is enabled, automatically re-trigger upload
+          if (isLooping) {
+            document.getElementById('loopText').textContent = 'enabled';
+            document.getElementById('stopLoopBtn').style.display = 'inline-block';
+            document.getElementById('uploadForm').reset();
+            setTimeout(() => {
+              uploadToYouTube(file, title, description, madeForKids, thumbnailFile);
+            }, 2000);  // 2-second delay before next upload
+          }
+        }, function(err) {
+          console.error(err);
+          alert("Upload failed: " + err.result.error.message);
+        });
       };
-
-      const form = new FormData();
-      const blobMetadata = new Blob([JSON.stringify(metadata)], { type: 'application/json' });
-      form.append("snippet", blobMetadata);
-      form.append("video", file);
-
-      const xhr = new XMLHttpRequest();
-      xhr.open("POST", "https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status", true);
-      xhr.setRequestHeader("Authorization", "Bearer " + accessToken);
-      xhr.setRequestHeader("Content-Type", "application/json; charset=UTF-8");
-
-      xhr.onload = function () {
-        if (xhr.status === 200) {
-          const uploadUrl = xhr.getResponseHeader("Location");
-
-          const xhr2 = new XMLHttpRequest();
-          xhr2.open("PUT", uploadUrl, true);
-          xhr2.setRequestHeader("Content-Type", file.type);
-
-          xhr2.onload = function () {
-            if (xhr2.status === 200) {
-              const response = JSON.parse(xhr2.responseText);
-              const videoId = response.id;
-              showSuccessMessage(videoId);
-              if (thumbnailFile) uploadThumbnail(videoId, thumbnailFile);
-            } else {
-              alert("Upload failed: " + xhr2.responseText);
-            }
-          };
-
-          xhr2.onerror = () => alert("Upload failed during video transfer.");
-          xhr2.send(file);
-        } else {
-          alert("Initial upload failed: " + xhr.responseText);
-        }
-      };
-
-      xhr.setRequestHeader("X-Upload-Content-Type", file.type);
-      xhr.send(JSON.stringify(metadata));
     }
 
-    document.getElementById('uploadForm').addEventListener('submit', function (e) {
+    document.getElementById('uploadForm').addEventListener('submit', function(e) {
       e.preventDefault();
       const file = document.getElementById('video').files[0];
       const thumbnailFile = document.getElementById('thumbnail').files[0];
@@ -179,7 +188,15 @@
         return;
       }
 
+      // Start uploading the video automatically
       uploadToYouTube(file, title, description, madeForKids, thumbnailFile);
+    });
+
+    // Stop the loop when the button is clicked
+    document.getElementById('stopLoopBtn').addEventListener('click', () => {
+      isLooping = false;
+      document.getElementById('loopText').textContent = 'disabled';
+      document.getElementById('stopLoopBtn').style.display = 'none';
     });
 
     window.onload = initGoogleClient;
