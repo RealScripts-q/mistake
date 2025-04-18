@@ -2,94 +2,129 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Firebase Example</title>
-  <!-- Firebase SDK -->
-  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-storage.js"></script>
+  <title>YouTube Uploader with Google Identity Services</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="google-signin-client_id" content="143618709913-c87kg55fruv738c95hgcu470eqc35jj0.apps.googleusercontent.com">
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="https://apis.google.com/js/api.js"></script>
 </head>
 <body>
+  <h2>YouTube Video Uploader</h2>
 
-  <h1>Firebase Example</h1>
-  
-  <button onclick="signUp()">Sign Up</button>
+  <!-- Sign in button -->
+  <div id="signinDiv"></div>
+  <p id="signinStatus">Not signed in</p>
 
-  <button onclick="addDocument()">Add Document to Firestore</button>
-
-  <input type="file" onchange="uploadFile(event)">
+  <!-- Upload form -->
+  <form id="uploadForm" style="display:none;">
+    <label>Title:</label><br>
+    <input type="text" id="title" required><br><br>
+    <label>Description:</label><br>
+    <textarea id="description" required></textarea><br><br>
+    <label>Select Video:</label><br>
+    <input type="file" id="video" accept="video/*" required><br><br>
+    <button type="submit">Upload</button>
+  </form>
 
   <script>
-    // Firebase configuration
-    const firebaseConfig = {
-      apiKey: "AIzaSyCvcqtnv9r4cRdsTvr05kDUKnjBBg7j3go",
-      authDomain: "access-7c756.firebaseapp.com",
-      projectId: "access-7c756",
-      storageBucket: "access-7c756.firebasestorage.app",
-      messagingSenderId: "584393239450",
-      appId: "1:584393239450:web:cc080c66bc9f2e44d06823",
-      measurementId: "G-T24Y0GV601"
-    };
+    let tokenClient;
+    let accessToken = null;
 
-    // Initialize Firebase
-    const app = firebase.initializeApp(firebaseConfig);
+    function initGoogleClient() {
+      gapi.load('client', () => {
+        gapi.client.init({
+          apiKey: 'AIzaSyDvlQjFdyA3CT4wksuA1gD2QJ6DZOY_A3w',
+          discoveryDocs: ['https://www.googleapis.com/discovery/v1/apis/youtube/v3/rest']
+        }).then(() => {
+          tokenClient = google.accounts.oauth2.initTokenClient({
+            client_id: '143618709913-c87kg55fruv738c95hgcu470eqc35jj0.apps.googleusercontent.com',
+            scope: 'https://www.googleapis.com/auth/youtube.upload',
+            callback: (tokenResponse) => {
+              accessToken = tokenResponse.access_token;
+              gapi.client.setToken({ access_token: accessToken });
 
-    // Firebase services
-    const auth = firebase.auth();
-    const db = firebase.firestore();
-    const storage = firebase.storage();
+              document.getElementById('signinStatus').textContent = "Signed in";
+              document.getElementById('uploadForm').style.display = 'block';
+              document.getElementById('signinDiv').style.display = 'none';
+            },
+          });
 
-    // Sign up user with email and password
-    function signUp() {
-      const email = "user@example.com";
-      const password = "your-password";
-      
-      auth.createUserWithEmailAndPassword(email, password)
-        .then((userCredential) => {
-          console.log("User signed up:", userCredential.user);
-        })
-        .catch((error) => {
-          console.error("Error signing up:", error.message);
+          // Show sign-in button
+          const signinDiv = document.getElementById("signinDiv");
+          const button = document.createElement("button");
+          button.textContent = "Sign in with Google";
+          button.onclick = () => tokenClient.requestAccessToken();
+          signinDiv.appendChild(button);
         });
-    }
-
-    // Add a document to Firestore
-    function addDocument() {
-      const docRef = db.collection("users").doc("user1");
-      docRef.set({
-        name: "John Doe",
-        email: "john.doe@example.com"
-      })
-      .then(() => {
-        console.log("Document written successfully!");
-      })
-      .catch((error) => {
-        console.error("Error adding document: ", error);
       });
     }
 
-    // Upload a file to Firebase Storage
-    function uploadFile(event) {
-      const file = event.target.files[0];
-      const storageRef = storage.ref('uploads/' + file.name);
-      
-      const uploadTask = storageRef.put(file);
-      
-      uploadTask.on('state_changed', 
-        (snapshot) => {
-          const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-          console.log('Upload is ' + progress + '% done');
-        },
-        (error) => {
-          console.error('Upload failed:', error);
-        },
-        () => {
-          console.log('Upload successful');
-        }
-      );
-    }
-  </script>
+    function uploadToYouTube(file, title, description) {
+      const reader = new FileReader();
+      reader.readAsArrayBuffer(file);
+      reader.onload = function () {
+        const fileData = reader.result;
 
+        const boundary = '-------314159265358979323846';
+        const delimiter = "\r\n--" + boundary + "\r\n";
+        const close_delim = "\r\n--" + boundary + "--";
+
+        const metadata = {
+          snippet: {
+            title: title,
+            description: description,
+            categoryId: '22'
+          },
+          status: {
+            privacyStatus: 'public'
+          }
+        };
+
+        const multipartRequestBody =
+          delimiter +
+          'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+          JSON.stringify(metadata) +
+          delimiter +
+          'Content-Type: ' + file.type + '\r\n\r\n' +
+          new TextDecoder("utf-8").decode(new Uint8Array(fileData)) +
+          close_delim;
+
+        gapi.client.request({
+          path: '/upload/youtube/v3/videos',
+          method: 'POST',
+          params: {
+            uploadType: 'multipart',
+            part: 'snippet,status'
+          },
+          headers: {
+            'Content-Type': 'multipart/related; boundary="' + boundary + '"'
+          },
+          body: multipartRequestBody
+        }).then(function(response) {
+          console.log(response);
+          alert("Video uploaded! Video ID: " + response.result.id);
+        }, function(err) {
+          console.error(err);
+          alert("Upload failed: " + err.result.error.message);
+        });
+      };
+    }
+
+    document.getElementById('uploadForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const file = document.getElementById('video').files[0];
+      const title = document.getElementById('title').value;
+      const description = document.getElementById('description').value;
+
+      if (!accessToken) {
+        alert("You must sign in first.");
+        return;
+      }
+
+      uploadToYouTube(file, title, description);
+    });
+
+    window.onload = initGoogleClient;
+  </script>
 </body>
 </html>
