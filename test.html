@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>YouTube Uploader with Google Identity Services</title>
+  <title>YouTube Video Uploader</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="google-signin-client_id" content="143618709913-c87kg55fruv738c95hgcu470eqc35jj0.apps.googleusercontent.com">
   <script src="https://accounts.google.com/gsi/client" async defer></script>
@@ -35,9 +35,6 @@
     <label>Select Video:</label><br>
     <input type="file" id="video" accept="video/*" required><br><br>
 
-    <label>Thumbnail (optional):</label><br>
-    <input type="file" id="thumbnail" accept="image/*"><br><br>
-
     <label><input type="checkbox" id="madeForKids"> Made for kids</label><br><br>
 
     <button type="submit">Upload</button>
@@ -68,11 +65,10 @@
             },
           });
 
-          const signinDiv = document.getElementById("signinDiv");
           const button = document.createElement("button");
           button.textContent = "Sign in with Google";
           button.onclick = () => tokenClient.requestAccessToken();
-          signinDiv.appendChild(button);
+          document.getElementById('signinDiv').appendChild(button);
         });
       });
     }
@@ -87,78 +83,42 @@
       `;
     }
 
-    function uploadThumbnail(videoId, thumbnailFile) {
-      const reader = new FileReader();
-      reader.readAsArrayBuffer(thumbnailFile);
-      reader.onload = function () {
-        gapi.client.request({
-          path: '/upload/youtube/v3/thumbnails/set',
-          method: 'POST',
-          params: { videoId: videoId },
-          headers: {
-            'Content-Type': thumbnailFile.type
-          },
-          body: reader.result
-        }).then(() => {
-          console.log("Thumbnail uploaded!");
-        }, err => {
-          console.error(err);
-          alert("Thumbnail upload failed: " + err.result.error.message);
-        });
+    function uploadToYouTube(file, title, description, madeForKids) {
+      const metadata = {
+        snippet: {
+          title,
+          description,
+          categoryId: '22'
+        },
+        status: {
+          privacyStatus: 'public',
+          madeForKids: madeForKids
+        }
       };
-    }
 
-    function uploadToYouTube(file, title, description, madeForKids, thumbnailFile) {
-      const reader = new FileReader();
-      reader.readAsArrayBuffer(file);
-      reader.onload = function () {
-        const fileData = reader.result;
-        const boundary = '-------314159265358979323846';
-        const delimiter = "\r\n--" + boundary + "\r\n";
-        const close_delim = "\r\n--" + boundary + "--";
+      const uploader = new MediaUploader({
+        baseUrl: 'https://www.googleapis.com/upload/youtube/v3/videos',
+        file: file,
+        token: accessToken,
+        metadata: metadata,
+        params: {
+          part: 'snippet,status'
+        },
+        onComplete: function(data) {
+          const response = JSON.parse(data);
+          showSuccessMessage(response.id);
+        },
+        onError: function(error) {
+          alert("Upload error: " + error);
+        }
+      });
 
-        const metadata = {
-          snippet: { title, description, categoryId: '22' },
-          status: {
-            privacyStatus: 'public',
-            madeForKids: madeForKids
-          }
-        };
-
-        const multipartRequestBody =
-          delimiter +
-          'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
-          JSON.stringify(metadata) +
-          delimiter +
-          'Content-Type: ' + file.type + '\r\n\r\n' +
-          new Uint8Array(fileData) +
-          close_delim;
-
-        gapi.client.request({
-          path: '/upload/youtube/v3/videos',
-          method: 'POST',
-          params: { uploadType: 'multipart', part: 'snippet,status' },
-          headers: { 'Content-Type': 'multipart/related; boundary="' + boundary + '"' },
-          body: multipartRequestBody
-        }).then(function(response) {
-          const videoId = response.result.id;
-          showSuccessMessage(videoId);
-
-          // Upload thumbnail if provided
-          if (thumbnailFile) {
-            uploadThumbnail(videoId, thumbnailFile);
-          }
-        }, function(err) {
-          console.error(err);
-          alert("Upload failed: " + err.result.error.message);
-        });
-      };
+      uploader.upload();
     }
 
     document.getElementById('uploadForm').addEventListener('submit', function(e) {
       e.preventDefault();
       const file = document.getElementById('video').files[0];
-      const thumbnailFile = document.getElementById('thumbnail').files[0];
       const title = document.getElementById('title').value;
       const description = document.getElementById('description').value;
       const madeForKids = document.getElementById('madeForKids').checked;
@@ -168,8 +128,60 @@
         return;
       }
 
-      uploadToYouTube(file, title, description, madeForKids, thumbnailFile);
+      uploadToYouTube(file, title, description, madeForKids);
     });
+
+    // MediaUploader class from Google's official YouTube uploader example
+    class MediaUploader {
+      constructor(options) {
+        this.file = options.file;
+        this.token = options.token;
+        this.metadata = options.metadata;
+        this.baseUrl = options.baseUrl;
+        this.params = options.params;
+        this.onComplete = options.onComplete;
+        this.onError = options.onError;
+        this.offset = 0;
+        this.chunkSize = 262144; // 256 KB
+        this.url = this.baseUrl + '?uploadType=resumable&' + new URLSearchParams(this.params).toString();
+      }
+
+      upload() {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', this.url, true);
+        xhr.setRequestHeader('Authorization', 'Bearer ' + this.token);
+        xhr.setRequestHeader('Content-Type', 'application/json; charset=UTF-8');
+        xhr.setRequestHeader('X-Upload-Content-Length', this.file.size);
+        xhr.setRequestHeader('X-Upload-Content-Type', this.file.type);
+
+        xhr.onload = () => {
+          if (xhr.status < 400 && xhr.status >= 200) {
+            this.uploadFile(JSON.parse(xhr.response).uploadUrl);
+          } else {
+            this.onError(xhr.responseText);
+          }
+        };
+
+        xhr.onerror = () => this.onError(xhr.responseText);
+        xhr.send(JSON.stringify(this.metadata));
+      }
+
+      uploadFile(uploadUrl) {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', uploadUrl, true);
+        xhr.setRequestHeader('Content-Type', this.file.type);
+        xhr.setRequestHeader('Content-Length', this.file.size);
+        xhr.onload = () => {
+          if (xhr.status === 200 || xhr.status === 201) {
+            this.onComplete(xhr.responseText);
+          } else {
+            this.onError(xhr.responseText);
+          }
+        };
+        xhr.onerror = () => this.onError(xhr.responseText);
+        xhr.send(this.file);
+      }
+    }
 
     window.onload = initGoogleClient;
   </script>
